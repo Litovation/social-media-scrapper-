@@ -16,7 +16,7 @@ The supplied collectors cover X, Instagram, Bluesky, Mastodon, YouTube and Contr
 
 Requires Node 24. Run `npm start`, or double-click START.cmd. Open http://127.0.0.1:4173. The local dashboard server listens on this computer only.
 
-For online hosting, follow [Vercel setup](VERCEL.md). The repository supports Vercel's native Node.js server runtime, exact hosted-domain checks, and HTTPS requests. Enable Vercel Authentication for **All Deployments** before connecting the hosted dashboard to the database. The app has no separate hosted login layer.
+For online hosting, follow [Vercel setup](VERCEL.md). The repository uses a standard Node.js API function with the same dashboard handler as the local server, exact hosted-domain checks, and HTTPS requests. Enable Vercel Authentication for **All Deployments** before connecting the hosted dashboard to the database. The app has no separate hosted login layer.
 
 The ignored local .env is configured on the original computer. Credentials are not included in this repository or the ZIP. On another computer, copy .env.example to .env and configure SUPABASE_URL, SUPABASE_KEY and DASHBOARD_TOKEN. The dashboard does not need a service-role key. Run `npm run check:connection` to verify the connection without printing secrets.
 
