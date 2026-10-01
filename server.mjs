@@ -55,6 +55,10 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, {'Content-Type':'text/html; charset=utf-8', 'Cache-Control':'no-cache'});
       return res.end(await readFile(join(root, 'public/index.html')));
     }
+    if (path === '/analysis.js' && req.method === 'GET') {
+      res.writeHead(200, {'Content-Type':'text/javascript; charset=utf-8', 'Cache-Control':'no-cache'});
+      return res.end(await readFile(join(root, 'public/analysis.js')));
+    }
     return json(404, {error:'Not found'});
   } catch { return json(500, {error:'Connection failed. Check server configuration.'}); }
 });

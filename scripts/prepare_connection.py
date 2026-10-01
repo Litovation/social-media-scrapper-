@@ -9,7 +9,7 @@ args = parser.parse_args()
 if not re.fullmatch(r'[a-z0-9]{20}', args.project_ref):
     parser.error('Expected the 20-character Supabase project reference.')
 root = Path(__file__).resolve().parents[1]
-files = sorted((root / 'supabase/sql').glob('*.sql'))
+files = sorted((root / 'supabase/sql').glob('*.sql')) + sorted((root / 'supabase/migrations').glob('*.sql'))
 chunks = []
 for p in files:
     sql = p.read_text(encoding='utf-8')

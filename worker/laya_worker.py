@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -37,7 +38,7 @@ POST_QUESTIONS = {
             "opinion": "shares an opinion or hot take about the industry",
             "story": "tells a personal story or journey",
             "proof": "shares results, numbers, testimonials or client wins",
-            "offer": "sells a service, announces availability, pricing or a launch",
+            "offer": "explicitly sells a paid service or product, announces paid availability or pricing; a job announcement or project launch alone is not an offer",
             "other": "none of these",
         },
     },
@@ -59,7 +60,7 @@ POST_QUESTIONS = {
     },
     "subject": {
         "type": "choice",
-        "instructions": "What is `post` about?",
+        "instructions": "What is `post` mainly about? Use only explicit evidence in the text. Money transfers, crypto and banking are not AI tools. Select other when no design subject fits.",
         "criteria": {
             "branding": "brand identity, logos or brand strategy",
             "ui_ux": "app or product UI and UX",
@@ -74,7 +75,20 @@ POST_QUESTIONS = {
     },
     "has_cta": {
         "type": "noul",
-        "instructions": "Does `post` ask the reader to act, like DM, book a call, visit a link, comment or follow?",
+        "instructions": "Does `post` explicitly ask the reader to act: DM, book, download, visit, comment or follow? A URL, announcement or mention alone is not a call to action. Judge presence only, never quality or performance.",
+    },
+    "cta_kind": {
+        "type": "choice",
+        "instructions": "What is the main explicit call to action? Choose none if the post makes no request. Do not infer effectiveness.",
+        "criteria": {
+            "inquiry": "DM about paid work, book a call, buy or hire",
+            "resource": "comment or DM a keyword to receive a free resource or giveaway",
+            "conversation": "answer a question, discuss, comment or share an opinion",
+            "follow_share": "follow, like, repost or share",
+            "visit": "explicitly visit a link, read or view the full project",
+            "none": "no explicit requested action",
+            "other": "another explicit requested action",
+        },
     },
     "specificity": {
         "type": "score",
@@ -88,7 +102,7 @@ POST_QUESTIONS = {
     },
     "slop": {
         "type": "noul",
-        "instructions": "Does `post` read like generic AI-written filler with no real specifics or personal voice?",
+        "instructions": "Is the wording of `post` vague and generic, lacking concrete examples, details or personal experience? Judge observable wording only, not whether AI wrote it.",
     },
 }
 
@@ -157,6 +171,49 @@ def slim(ans: dict) -> dict:
     return out
 
 
+def confident_choice(ans: dict, q: str):
+    """Abstain on ambiguous choices rather than publishing the highest weak guess."""
+    a = (ans or {}).get(q) or {}
+    confidence = a.get("answer_confidence")
+    if not isinstance(confidence, (float, int)) or confidence < 0.55:
+        return None
+    probabilities = sorted((a.get("probabilities") or {}).values(), reverse=True)
+    if len(probabilities) >= 2 and probabilities[0] - probabilities[1] < 0.15:
+        return None
+    return answer(ans, q)
+
+
+def classify_answers(text: str, ans: dict) -> dict:
+    """Laya labels plus explicit text checks; model scores are not calibrated accuracy."""
+    purpose = confident_choice(ans, "purpose")
+    subject = confident_choice(ans, "subject")
+    kind = confident_choice(ans, "cta_kind")
+    cta = answer(ans, "has_cta")
+    sources = {}
+    # Never infer AI as the subject without an explicit AI term or named tool.
+    if subject == "ai" and not re.search(r"\b(ai|artificial intelligence|chatgpt|midjourney|claude|stable diffusion|dall[ -]?e|gemini|copilot)\b", text, re.I):
+        subject = None
+        sources["subject"] = "abstained: no explicit AI evidence"
+    # An incentivized resource request takes precedence over its follow requirement.
+    resource = re.search(r"\b(comment|reply|dm)\b", text, re.I) and re.search(r"\b(free|giveaway|send|download|template|checklist|pack)\b", text, re.I)
+    inquiry = re.search(r"\b(book|schedule)\s+(?:a |an |your |our )?(?:discovery |intro |consultation )?(?:call|consultation)\b", text, re.I)
+    if resource:
+        kind, cta = "resource", 1.0
+        sources["cta"] = "explicit resource request in text"
+        if purpose == "offer" and not re.search(r"\b(paid|buy|price|pricing|hire|slots|services)\b", text, re.I):
+            purpose = None
+            sources["purpose"] = "abstained: free resource is not a paid offer"
+    elif inquiry:
+        kind, cta = "inquiry", 1.0
+        sources["cta"] = "explicit booking request in text"
+    if cta is not None and cta <= 0.35:
+        kind = "none"
+    elif cta is None or cta < 0.65:
+        kind = None
+    return {"purpose": purpose, "hook": confident_choice(ans, "hook"), "subject": subject,
+            "has_cta": cta, "cta_kind": kind, "sources": sources}
+
+
 def main() -> int:
     url, key, token = os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY"), os.environ.get("LAYA_WORKER_TOKEN")
     if not (url and key and token):
@@ -175,7 +232,7 @@ def main() -> int:
     tagged = accounts = 0
 
     # Reserve time for discovered profiles before a large post backlog.
-    profile_budget = max_seconds if os.environ.get("LAYA_MODE") == "accounts" else min(max_seconds * 0.2, 300)
+    profile_budget = max_seconds if os.environ.get("LAYA_MODE") == "accounts" else (0 if os.environ.get("LAYA_MODE") == "posts" else min(max_seconds * 0.2, 300))
     while time.time() - started < profile_budget:
         rows = db.rpc("laya_next_accounts", {"p_limit": batch}) or []
         if not rows:
@@ -191,7 +248,7 @@ def main() -> int:
 
     # Posts use the remaining budget.
     while os.environ.get("LAYA_MODE") != "accounts" and time.time() - started < max_seconds:
-        rows = db.rpc("laya_next_posts", {"p_limit": batch}) or []
+        rows = db.rpc("laya_next_posts_v2", {"p_limit": batch}) or []
         if not rows:
             break
         reqs = [{"state": {"post": r["text"]}, "questions": POST_QUESTIONS} for r in rows]
@@ -200,17 +257,18 @@ def main() -> int:
         for r, res in zip(rows, results):
             ans = (res or {}).get("answers", {})
             model_name = ((res or {}).get("routing") or {}).get("model", model_name)
+            labels = classify_answers(r["text"], ans)
             out.append({
                 "post_id": r["id"],
                 "relevant": answer(ans, "relevant"),
-                "purpose": answer(ans, "purpose"),
-                "hook": answer(ans, "hook"),
-                "subject": answer(ans, "subject"),
-                "has_cta": answer(ans, "has_cta"),
+                "purpose": labels["purpose"],
+                "hook": labels["hook"],
+                "subject": labels["subject"],
+                "has_cta": labels["has_cta"],
                 "specificity": answer(ans, "specificity"),
                 "slop": answer(ans, "slop"),
-                "answers": slim(ans),
-                "model": f"laya:{model_name}",
+                "answers": {**slim(ans), "_schema_version": "2", "_cta_kind": labels["cta_kind"], "_label_sources": labels["sources"]},
+                "model": f"laya:v2:{model_name}",
             })
         tagged += db.rpc("laya_save_tags", {"p_rows": out}) or 0
         print(f"tagged {tagged} posts ({time.time() - started:.0f}s)", flush=True)
