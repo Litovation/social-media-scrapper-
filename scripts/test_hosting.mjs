@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import {hostingPolicy} from '../hosting.mjs';
+
+const local = hostingPolicy({},4173);
+assert.equal(local.request('127.0.0.1:4173','http://127.0.0.1:4173').allowedHost,true);
+assert.equal(local.request('localhost:4173','http://localhost:4173').allowedOrigin,true);
+assert.equal(local.request('signal.vercel.app').allowedHost,false);
+assert.equal(local.request('127.0.0.1:4173','https://attacker.example').allowedOrigin,false);
+const hosted = hostingPolicy({VERCEL:'1',VERCEL_URL:'signal-preview.vercel.app',VERCEL_PROJECT_PRODUCTION_URL:'signal.vercel.app',APP_ORIGIN:'https://signal.example.com'});
+assert.equal(hosted.request('signal.vercel.app','https://signal.vercel.app').allowedOrigin,true);
+assert.equal(hosted.request('signal-preview.vercel.app','https://signal-preview.vercel.app').allowedHost,true);
+assert.equal(hosted.request('signal.example.com','https://signal.example.com').allowedOrigin,true);
+assert.equal(hosted.request('attacker.vercel.app').allowedHost,false);
+assert.equal(hosted.request('signal.vercel.app.attacker.example').allowedHost,false);
+assert.equal(hosted.request('127.0.0.1:4173').allowedHost,false);
+assert.equal(hosted.request('signal.vercel.app','http://signal.vercel.app').allowedOrigin,false);
+assert.equal(hosted.request('signal.vercel.app','https://attacker.example').allowedOrigin,false);
+assert.throws(()=>hostingPolicy({APP_ORIGIN:'http://signal.example.com'}));
+assert.throws(()=>hostingPolicy({APP_ORIGIN:'https://signal.example.com/private'}));
+assert.equal(hostingPolicy({VERCEL:'1'}).request('unknown.vercel.app').allowedHost,false);
+console.log('Hosted HTTPS, preview domains, custom domains, localhost and hostile origins verified.');

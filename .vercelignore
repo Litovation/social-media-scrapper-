@@ -1,0 +1,8 @@
+.env
+.env.*
+.github
+worker
+extension
+supabase
+dashboard
+__pycache__

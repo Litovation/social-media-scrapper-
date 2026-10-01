@@ -2,8 +2,10 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { hostingPolicy } from './hosting.mjs';
 const root = dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 4173);
+const hosting = hostingPolicy(process.env, port);
 const privileged = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
 const apiKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 const configured = Boolean(process.env.SUPABASE_URL && apiKey && (privileged || process.env.DASHBOARD_TOKEN));
@@ -25,12 +27,13 @@ const routes = {
 const server = http.createServer(async (req, res) => {
   const json = (code, body) => { res.writeHead(code, {'Content-Type':'application/json', 'Cache-Control':'no-store'}); res.end(JSON.stringify(body)); };
   try {
-    if (![ `127.0.0.1:${port}`, `localhost:${port}` ].includes(req.headers.host)) return json(403, {error:'Host rejected'});
-    const path = new URL(req.url, `http://127.0.0.1:${port}`).pathname;
+    const policy = hosting.request(req.headers.host, req.headers.origin);
+    if (!policy.allowedHost) return json(403, {error:'Host rejected'});
+    const path = new URL(req.url, policy.origin).pathname;
     if (path === '/api/status' && req.method === 'GET') return json(200, {configured});
     if (path.startsWith('/api/rpc/') && req.method === 'POST') {
-      // The local dashboard may access privileged RPCs; reject cross-origin requests.
-      if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) return json(403, {error:'Origin rejected'});
+      // Both local and hosted dashboards must use their own exact origin.
+      if (!policy.allowedOrigin) return json(403, {error:'Origin rejected'});
       if (req.headers['sec-fetch-site'] === 'cross-site') return json(403, {error:'Origin rejected'});
       if (!configured) return json(503, {error:'Configure the Supabase connection in .env.'});
       const name = path.slice('/api/rpc/'.length);
@@ -62,4 +65,6 @@ const server = http.createServer(async (req, res) => {
     return json(404, {error:'Not found'});
   } catch { return json(500, {error:'Connection failed. Check server configuration.'}); }
 });
-server.listen(port, '127.0.0.1', () => console.log(`Agency Signal: http://127.0.0.1:${port}`));
+server.listen(port, hosting.hosted ? '0.0.0.0' : '127.0.0.1', () => console.log(
+  hosting.hosted ? 'Agency Signal: hosted server ready' : `Agency Signal: http://127.0.0.1:${port}`
+));
