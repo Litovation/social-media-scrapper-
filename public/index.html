@@ -503,6 +503,7 @@ import {coverageReady, reliableTrait, ctaGuidance, reportName} from "/analysis.j
     const out = [];
     const pats = d.patterns || {};
     for (const [dim, name] of DIMS) {
+      if (dim === "cta" || dim === "cta_kind") continue; // Dedicated matched comparison decides CTA guidance.
       const vals = (pats[dim] || []).filter((v) => reliableTrait(v, d) && v.lift != null);
       if (!vals.length) continue;
       const best = vals[0];
