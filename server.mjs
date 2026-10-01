@@ -25,6 +25,7 @@ const routes = {
 const server = http.createServer(async (req, res) => {
   const json = (code, body) => { res.writeHead(code, {'Content-Type':'application/json', 'Cache-Control':'no-store'}); res.end(JSON.stringify(body)); };
   try {
+    if (![ `127.0.0.1:${port}`, `localhost:${port}` ].includes(req.headers.host)) return json(403, {error:'Host rejected'});
     const path = new URL(req.url, `http://127.0.0.1:${port}`).pathname;
     if (path === '/api/status' && req.method === 'GET') return json(200, {configured});
     if (path.startsWith('/api/rpc/') && req.method === 'POST') {

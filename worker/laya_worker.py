@@ -174,8 +174,23 @@ def main() -> int:
     model_name = "laya"
     tagged = accounts = 0
 
-    # 1) Posts
-    while time.time() - started < max_seconds:
+    # Reserve time for discovered profiles before a large post backlog.
+    profile_budget = max_seconds if os.environ.get("LAYA_MODE") == "accounts" else min(max_seconds * 0.2, 300)
+    while time.time() - started < profile_budget:
+        rows = db.rpc("laya_next_accounts", {"p_limit": batch}) or []
+        if not rows:
+            break
+        reqs = [{"state": {"profile": r["profile"]}, "questions": ACCOUNT_QUESTIONS} for r in rows]
+        results = router.predict_batch(reqs, batch_size=8, sort_by_length=True)
+        out = []
+        for r, res in zip(rows, results):
+            ans = (res or {}).get("answers", {})
+            out.append({"id": r["id"], "relevance": answer(ans, "relevant"), "kind": answer(ans, "kind")})
+        accounts += db.rpc("laya_save_accounts", {"p_rows": out}) or 0
+        print(f"classified {accounts} accounts", flush=True)
+
+    # Posts use the remaining budget.
+    while os.environ.get("LAYA_MODE") != "accounts" and time.time() - started < max_seconds:
         rows = db.rpc("laya_next_posts", {"p_limit": batch}) or []
         if not rows:
             break
@@ -199,20 +214,6 @@ def main() -> int:
             })
         tagged += db.rpc("laya_save_tags", {"p_rows": out}) or 0
         print(f"tagged {tagged} posts ({time.time() - started:.0f}s)", flush=True)
-
-    # 2) Accounts the collector discovered
-    while time.time() - started < max_seconds:
-        rows = db.rpc("laya_next_accounts", {"p_limit": batch}) or []
-        if not rows:
-            break
-        reqs = [{"state": {"profile": r["profile"]}, "questions": ACCOUNT_QUESTIONS} for r in rows]
-        results = router.predict_batch(reqs, batch_size=8, sort_by_length=True)
-        out = []
-        for r, res in zip(rows, results):
-            ans = (res or {}).get("answers", {})
-            out.append({"id": r["id"], "relevance": answer(ans, "relevant"), "kind": answer(ans, "kind")})
-        accounts += db.rpc("laya_save_accounts", {"p_rows": out}) or 0
-        print(f"classified {accounts} accounts", flush=True)
 
     print(f"Done: {tagged} posts tagged, {accounts} accounts classified in {time.time() - started:.0f}s.")
     return 0
