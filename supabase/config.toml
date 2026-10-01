@@ -1,0 +1,6 @@
+project_id = "agency-signal"
+
+[functions.collect]
+# This collector uses its own database-held x-collect-secret authentication.
+# The handler checks that secret before fetching data or writing records.
+verify_jwt = false
