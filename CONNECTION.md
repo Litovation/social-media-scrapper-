@@ -4,7 +4,7 @@ Target Supabase project: `iqfigajknhhikuluvzth`
 
 Target repository: https://github.com/Litovation/social-media-scrapper-
 
-The target addresses are configured. Database deployment, collection schedules, dashboard credentials and GitHub Actions secrets are not yet activated or verified.
+The Supabase schema and collector are deployed, database collection schedules are active, local dashboard access is verified, and all three GitHub Actions secrets are configured. Live collection and Laya tagging have produced real database records.
 
 The database must be inspected before installing the schema, because it uses public tables with general names such as accounts, posts and sources.
 

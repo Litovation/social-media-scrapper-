@@ -1,14 +1,17 @@
 // Reads configuration without printing secrets or modifying the database.
 const base = process.env.SUPABASE_URL?.replace(/\/$/, '');
-const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!base || !key) {
-  console.error('Supabase connection not configured. Missing project URL or server key.');
+const privileged = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
+if (!base || !key || (!privileged && !process.env.DASHBOARD_TOKEN)) {
+  console.error('Supabase connection not configured. Missing project URL, key or dashboard token.');
   process.exit(2);
 }
 try {
-  const response = await fetch(base + '/rest/v1/rpc/dashboard', {
-    method:'POST', headers:{apikey:key, Authorization:`Bearer ${key}`, 'Content-Type':'application/json'},
-    body:JSON.stringify({p_days:1095}), signal:AbortSignal.timeout(30000)
+  const headers = {apikey:key, 'Content-Type':'application/json'};
+  if (!key.startsWith('sb_')) headers.Authorization = `Bearer ${key}`;
+  const response = await fetch(base + '/rest/v1/rpc/' + (privileged ? 'dashboard' : 'signal_dashboard'), {
+    method:'POST', headers,
+    body:JSON.stringify({p_days:1095, ...(privileged ? {} : {p_token:process.env.DASHBOARD_TOKEN})}), signal:AbortSignal.timeout(30000)
   });
   if (!response.ok) { console.error(`Dashboard RPC unavailable (${response.status}). Check project, schema and server-key permissions.`); process.exit(1); }
   const data = await response.json();

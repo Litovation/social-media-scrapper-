@@ -13,7 +13,7 @@ files = sorted((root / 'supabase/sql').glob('*.sql'))
 chunks = []
 for p in files:
     sql = p.read_text(encoding='utf-8')
-    sql = sql.replace('https://fkmutmzuwexfyqvanmlg.supabase.co', f'https://{args.project_ref}.supabase.co')
+    sql = re.sub(r'https://[a-z0-9]{20}\.supabase\.co', f'https://{args.project_ref}.supabase.co', sql)
     # Install schedules only after all function replacements have been applied.
     if p.name == '07_schedules_and_dashboard.sql':
         sql, schedules = sql.split('-- Schedules', 1)

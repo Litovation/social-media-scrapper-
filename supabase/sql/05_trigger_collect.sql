@@ -1,7 +1,7 @@
 -- How the database calls the collector edge function (used by the schedule).
 -- Change the URL if you move to another project.
 insert into private.config(key, value) values
-  ('functions_url', 'https://fkmutmzuwexfyqvanmlg.supabase.co/functions/v1')
+  ('functions_url', 'https://iqfigajknhhikuluvzth.supabase.co/functions/v1')
 on conflict (key) do update set value = excluded.value;
 
 create or replace function private.trigger_collect(p_accounts int default 10, p_sources int default 2)
